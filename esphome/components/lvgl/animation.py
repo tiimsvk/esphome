@@ -39,7 +39,7 @@ LvAnimationTimingRoundTrip = lvgl_ns.class_("LvAnimationTimingRoundTrip")
 LvAnimationTimingEaseInOut = lvgl_ns.class_("LvAnimationTimingEaseInOut")
 
 CONF_BOUNCE = "bounce"
-
+CONF_LOOP = "loop" # add loop variable (loop: true/false)
 
 def timing_class(name, extras=None):
     # Convert config option to camel case
@@ -108,6 +108,7 @@ ANIMATION_CONFIG = cv.Schema(
         cv.Optional(CONF_DURATION, default="5s"): lv_milliseconds,
         cv.Optional(CONF_START_DELAY, default="0s"): lv_milliseconds,
         cv.Optional(CONF_TIMING, default={}): cv.ensure_list(TIMING_SCHEMA),
+        cv.Optional(CONF_LOOP, default=False): cv.boolean,  # <<< NOVÁ VOLITEĽNÁ MOŽNOSŤ
     }
 )
 ANIMATION_SCHEMA = ANIMATION_CONFIG.extend(
@@ -179,11 +180,24 @@ async def animations_to_code(config):
         cg.add(
             var.set_duration(await lv_milliseconds.process(animation[CONF_DURATION]))
         )
-        cg.add(
-            var.set_start_delay(
-                await lv_milliseconds.process(animation[CONF_START_DELAY])
-            )
-        )
+        #cg.add(
+        #    var.set_start_delay(
+        #        await lv_milliseconds.process(animation[CONF_START_DELAY])
+        #    )
+        #)
+        # >>> NOVÝ OPRAVENÝ KÓD:
+        start_delay = animation[CONF_START_DELAY]
+       
+        # Použijeme cg.templatable, ktoré správne spracuje !lambda, alebo pevnú hodnotu
+        template_ = await cg.templatable(start_delay, [], cg.uint32)
+        cg.add(var.set_start_delay(template_))
+        # <<< KONIEC OPRAVY
+        
+        # <<< code loop anime
+        if animation[CONF_LOOP]:
+            cg.add(var.set_repeat_count(literal("0xFFFF")))
+        # >>> end code anime
+        
         await cg.register_component(var, animation)
 
 
@@ -209,11 +223,48 @@ async def start_animation(config, action_id, template_arg, args):
                 context.add(
                     anim_var.set_duration(await lv_milliseconds.process(duration))
                 )
+            #if (start_delay := config.get(CONF_START_DELAY)) is not None:
+            #    context.add(
+            #        anim_var.set_start_delay(await lv_milliseconds.process(start_delay))
+            #    )
+            
+            # >>> NOVÝ OPRAVENÝ KÓD:
             if (start_delay := config.get(CONF_START_DELAY)) is not None:
-                context.add(
-                    anim_var.set_start_delay(await lv_milliseconds.process(start_delay))
-                )
+                output_type = cg.uint32
+                lambda_args = []
+                # Tu potrebujeme vyhodnotiť lambdu v kontexte akcie (context.args), 
+                # kde môže byť iný set argumentov, ale pre animáciu sú opäť prázdne
+                
+                # Použijeme cg.templatable, ktoré správne spracuje !lambda, alebo pevnú hodnotu
+                template_ = await cg.templatable(start_delay, lambda_args, output_type)
+                context.add(anim_var.set_start_delay(template_))
+            # <<< KONIEC OPRAVY
+            
             context.add(anim_var.start())
+    var = cg.new_Pvariable(action_id, template_arg, await context.get_lambda())
+    await cg.register_parented(var, config[CONF_LVGL_ID])
+    return var
+ 
+ # --- NOVÁ AKCIA PRE ZASTAVENIE ANIMÁCIE ---
+@automation.register_action(
+    "lvgl.animation.stop",
+    LvglAction,
+    cv.maybe_simple_value(
+        {
+            cv.Required(CONF_ID): cv.ensure_list(cv.use_id(LvAnimation)),
+            cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
+        },
+        key=CONF_ID,
+    ),
+)
+async def stop_animation(config, action_id, template_arg, args):
+    animations = config[CONF_ID]
+    async with LambdaContext(LVGL_COMP_ARG, where=action_id) as context:
+        for animation in animations:
+            anim_var = await cg.get_variable(animation)
+            # Volanie C++ metódy: void LvAnimation::stop()
+            context.add(anim_var.stop())
+            
     var = cg.new_Pvariable(action_id, template_arg, await context.get_lambda())
     await cg.register_parented(var, config[CONF_LVGL_ID])
     return var
