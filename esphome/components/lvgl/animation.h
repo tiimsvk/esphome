@@ -1,5 +1,8 @@
 #pragma once
 #include "esphome/core/defines.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/component.h" // Ak je to staršia verzia
+#include "esphome/core/automation.h"
 
 #ifdef USE_LVGL_ANIMATION
 #include "lvgl_esphome.h"
@@ -109,6 +112,10 @@ template<size_t DATA_SIZE> class LvAnimation : public Component {
       this->stop();
     if (this->duration_ == 0)
       return;
+  
+    // EDIT TEMPLATABLE START DELAY ANIM TiiMsvk2025
+    this->evaluated_start_delay_ = this->start_delay_.value();
+	
     // evaluate any lambdas
     for (size_t i = 0; i != DATA_SIZE; i++) {
       this->data_from_[i] = this->from_[i].value();
@@ -128,7 +135,8 @@ template<size_t DATA_SIZE> class LvAnimation : public Component {
     float progress = static_cast<float>(elapsed) / static_cast<float>(this->duration_);
     switch (this->state_) {
       case AnimationState::STARTED:
-        if (elapsed < this->start_delay_)
+        //if (elapsed < this->start_delay_)
+        if (elapsed < this->evaluated_start_delay_) // POUŽITIE VYHODNOTENEJ HODNOTY
           return;
         this->state_ = AnimationState::RUNNING;
         this->start_time_ = millis();
@@ -137,7 +145,21 @@ template<size_t DATA_SIZE> class LvAnimation : public Component {
       case AnimationState::RUNNING:
         if (progress >= 1.0f) {
           progress = 1.0f;
-          this->stop();
+          // >>> CODE LOOP ANIME
+          if (this->repeat_count_ == LV_ANIM_REPEAT_INFINITE || this->repeat_count_ > 0) {
+            if (this->repeat_count_ != LV_ANIM_REPEAT_INFINITE) {
+              this->repeat_count_--;
+            }
+			
+			this->evaluated_start_delay_ = this->start_delay_.value();
+			
+            this->state_ = AnimationState::STARTED;
+            this->start_time_ = millis();
+            progress = 0.0f;
+            return; 
+          }
+          // <<< END CODU LOOP ANIME
+          this->stop(); 
         }
         break;
       default:
@@ -156,20 +178,31 @@ template<size_t DATA_SIZE> class LvAnimation : public Component {
   }
 
   void set_duration(uint32_t duration) { this->duration_ = duration; }
-  void set_start_delay(uint32_t start_delay) { this->start_delay_ = start_delay; }
+  //void set_start_delay(uint32_t start_delay) { this->start_delay_ = start_delay; }
+  void set_start_delay(TemplatableValue<uint32_t> start_delay) {
+      this->start_delay_ = start_delay;
+  } //EDIT TEMPLATABLE START DELAY ANIM TiiMsvk2025
   void add_timing(LvAnimationTiming *timing) { this->timings_.push_back(timing); }
+
+  // >>> NOVÁ FUNKCIA
+  void set_repeat_count(uint16_t repeat_count) { this->repeat_count_ = repeat_count; }
 
  protected:
   std::function<void(const uint32_t *)> update_callback_;
   TemplatableValue<uint32_t> from_[DATA_SIZE]{};
-  TemplatableValue<uint32_t> to_[DATA_SIZE]{};
+  TemplatableValue<uint32_t> to_[DATA_SIZE]{}; 
   uint32_t duration_{0};
-  uint32_t start_delay_{0};
+  //uint32_t start_delay_{0};
+  TemplatableValue<uint32_t> start_delay_{}; //EDIT TEMPLATABLE START DELAY ANIM TiiMsvk2025
   uint32_t start_time_{0};
   uint32_t data_from_[DATA_SIZE]{0};
   uint32_t data_to_[DATA_SIZE]{0};
   AnimationState state_{AnimationState::STOPPED};
   std::vector<LvAnimationTiming *> timings_{};
+
+  uint32_t evaluated_start_delay_{0}; //EDIT TEMPLATABLE START DELAY ANIM TiiMsvk2025
+
+  uint16_t repeat_count_{0}; //NEW VARIABLE 0 = do not repeat (default), 1+ = number of repetitions, 0xFFFF = infinite repetition
 };
 
 }  // namespace esphome::lvgl
