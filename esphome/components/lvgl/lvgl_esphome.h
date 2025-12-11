@@ -127,11 +127,18 @@ using set_value_lambda_t = std::function<void(float)>;
 using event_callback_t = void(_lv_event_t *);
 using text_lambda_t = std::function<const char *()>;
 
+// --- FIXED: ensure signatures match core/automation.h ---
+// Action::play signature is virtual void play(const Ts& ...x) = 0;
+// Condition::check signature is virtual bool check(const Ts& ...x) = 0;
+// Trigger/others may also require const-ref parameter styles.
+
+// ObjUpdateAction: updated play signature to accept const refs.
 template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
  public:
   explicit ObjUpdateAction(std::function<void(Ts...)> &&lamb) : lamb_(std::move(lamb)) {}
 
-  void play(Ts... x) override { this->lamb_(x...); }
+  // Match Action<Ts...>::play(const Ts& ...)
+  void play(const Ts &... x) override { this->lamb_(x...); }
 
  protected:
   std::function<void(Ts...)> lamb_;
@@ -258,10 +265,12 @@ class PauseTrigger : public Trigger<> {
   TemplatableValue<bool> paused_;
 };
 
+// --- FIXED: LvglAction and LvglCondition signatures to match core ---
 template<typename... Ts> class LvglAction : public Action<Ts...>, public Parented<LvglComponent> {
  public:
   explicit LvglAction(std::function<void(LvglComponent *)> &&lamb) : action_(std::move(lamb)) {}
-  void play(Ts... x) override { this->action_(this->parent_); }
+  // Match Action<Ts...>::play(const Ts& ...)
+  void play(const Ts &... x) override { this->action_(this->parent_); }
 
  protected:
   std::function<void(LvglComponent *)> action_{};
@@ -270,7 +279,8 @@ template<typename... Ts> class LvglAction : public Action<Ts...>, public Parente
 template<typename Tc, typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<Tc> {
  public:
   LvglCondition(std::function<bool(Tc *)> &&condition_lambda) : condition_lambda_(std::move(condition_lambda)) {}
-  bool check(Ts... x) override { return this->condition_lambda_(this->parent_); }
+  // Match Condition<Ts...>::check(const Ts& ...)
+  bool check(const Ts &... x) override { return this->condition_lambda_(this->parent_); }
 
  protected:
   std::function<bool(Tc *)> condition_lambda_{};
