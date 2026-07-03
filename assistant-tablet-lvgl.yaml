@@ -1,0 +1,16 @@
+# ... (keep all the existing content until line 1512, then replace the sensor section)
+
+  - platform: homeassistant
+    entity_id: ${climate_acatelier}
+    id: set_temperature
+    attribute: temperature
+    internal: true
+    on_value:
+      - lambda: |-
+          // Update arc with ball
+          lv_arc_set_value(id(hvac_temp_knob), x * 10);
+          
+          // Update text
+          char buf[10];
+          snprintf(buf, sizeof(buf), "%.1f", x);
+          lv_label_set_text(id(hvac_temp_label), buf);
